@@ -1,6 +1,9 @@
+import { firebaseConfig, firebaseOptions } from "./firebase-config.js";
+
 const STORAGE_KEY = "missao-da-semana:v1";
 const WEEKLY_BASE_VALUE = 50;
 const SUCCESS_TARGET = 85;
+const FIREBASE_SDK_VERSION = "12.7.0";
 
 const tasks = [
   "Arrumar a cama",
@@ -65,6 +68,15 @@ const app = document.querySelector("#app");
 let state = loadState();
 let selectedWeekStart = state.currentWeekStart;
 let editingOccurrenceId = null;
+let cloud = {
+  status: "local",
+  message: "Salvando neste navegador",
+  ref: null,
+  setDoc: null,
+  serverTimestamp: null,
+  saveTimer: null,
+  unsubscribe: null
+};
 
 function createEmptyWeek(weekStart) {
   const taskStatus = {};
@@ -177,6 +189,139 @@ function ensureWeekShape(week) {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  queueCloudSave();
+}
+
+function saveLocalOnly() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function isFirebaseConfigured() {
+  return Boolean(
+    firebaseConfig?.apiKey &&
+      firebaseConfig?.projectId &&
+      firebaseConfig?.appId &&
+      firebaseOptions?.familyId
+  );
+}
+
+async function initCloudSync() {
+  if (!isFirebaseConfigured()) {
+    cloud = {
+      ...cloud,
+      status: "local",
+      message: "Firebase nao configurado"
+    };
+    render();
+    return;
+  }
+
+  try {
+    cloud = {
+      ...cloud,
+      status: "connecting",
+      message: "Conectando ao Firebase..."
+    };
+    render();
+
+    const [{ initializeApp }, firestoreModule] = await Promise.all([
+      import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`),
+      import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`)
+    ]);
+    const { getFirestore, doc, onSnapshot, setDoc, serverTimestamp } = firestoreModule;
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db = getFirestore(firebaseApp);
+    const ref = doc(db, "families", firebaseOptions.familyId, "app", "state");
+
+    cloud = {
+      ...cloud,
+      status: "connecting",
+      message: "Buscando dados da nuvem...",
+      ref,
+      setDoc,
+      serverTimestamp
+    };
+    render();
+
+    cloud.unsubscribe = onSnapshot(
+      ref,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const remoteState = snapshot.data()?.state;
+          if (remoteState) {
+            state = normalizeState(remoteState);
+            selectedWeekStart = state.currentWeekStart;
+            saveLocalOnly();
+          }
+        } else {
+          queueCloudSave(true);
+        }
+
+        cloud = {
+          ...cloud,
+          status: "online",
+          message: "Sincronizado com Firebase"
+        };
+        render();
+      },
+      (error) => {
+        cloud = {
+          ...cloud,
+          status: "error",
+          message: `Firebase: ${error.message}`
+        };
+        render();
+      }
+    );
+  } catch (error) {
+    cloud = {
+      ...cloud,
+      status: "error",
+      message: `Firebase: ${error.message}`
+    };
+    render();
+  }
+}
+
+function queueCloudSave(immediate = false) {
+  if (!cloud.ref || !cloud.setDoc) return;
+
+  clearTimeout(cloud.saveTimer);
+  const delay = immediate ? 0 : 700;
+  cloud.saveTimer = setTimeout(async () => {
+    try {
+      cloud = {
+        ...cloud,
+        status: "saving",
+        message: "Salvando na nuvem..."
+      };
+      render();
+
+      await cloud.setDoc(
+        cloud.ref,
+        {
+          state,
+          updatedAt: cloud.serverTimestamp(),
+          schemaVersion: 1
+        },
+        { merge: true }
+      );
+
+      cloud = {
+        ...cloud,
+        status: "online",
+        message: "Sincronizado com Firebase"
+      };
+      render();
+    } catch (error) {
+      cloud = {
+        ...cloud,
+        status: "error",
+        message: `Firebase: ${error.message}`
+      };
+      render();
+    }
+  }, delay);
 }
 
 function makeOccurrence(participantId, type, note = "", date = new Date()) {
@@ -464,13 +609,19 @@ function render() {
           <h1>Missão da Semana</h1>
           <p class="hero-copy">Tarefas, combinados e multas em uma rotina simples de segunda a domingo.</p>
         </div>
-        <div class="week-switcher" aria-label="Selecionar semana">
-          <label for="weekSelect">Semana</label>
-          <select id="weekSelect">
-            ${getAllWeekStarts()
-              .map((weekStart) => `<option value="${weekStart}" ${weekStart === selectedWeekStart ? "selected" : ""}>${formatDate(weekStart)} a ${formatDate(addDays(parseDateKey(weekStart), 6))}</option>`)
-              .join("")}
-          </select>
+        <div class="hero-tools">
+          <div class="sync-pill ${cloud.status}" title="${escapeHtml(cloud.message)}">
+            <span></span>
+            ${escapeHtml(cloud.message)}
+          </div>
+          <div class="week-switcher" aria-label="Selecionar semana">
+            <label for="weekSelect">Semana</label>
+            <select id="weekSelect">
+              ${getAllWeekStarts()
+                .map((weekStart) => `<option value="${weekStart}" ${weekStart === selectedWeekStart ? "selected" : ""}>${formatDate(weekStart)} a ${formatDate(addDays(parseDateKey(weekStart), 6))}</option>`)
+                .join("")}
+            </select>
+          </div>
         </div>
       </header>
 
@@ -773,3 +924,4 @@ function escapeHtml(value) {
 }
 
 render();
+initCloudSync();

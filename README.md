@@ -6,23 +6,22 @@ Aplicativo web simples para controlar tarefas domésticas semanais dos filhos Fe
 
 - `index.html`: página principal.
 - `src/app.js`: estado, cálculos, eventos, importação/exportação e renderização.
+- `src/firebase-config.js`: configuração opcional para sincronizar com Firebase Firestore.
 - `src/styles.css`: visual responsivo, colorido e lúdico.
 - `data/example-data.json`: resumo dos dados iniciais e regras.
+- `firestore.rules.example`: regras de exemplo para habilitar o documento usado pelo app.
 
 ## Como executar
 
-Opção mais simples:
-
-1. Abra o arquivo `index.html` no navegador.
-2. Use o aplicativo normalmente.
-
-Opção com servidor local:
+Execute com servidor local:
 
 ```bash
 npm start
 ```
 
 Depois acesse `http://localhost:4173`.
+
+Observação: como o app usa módulos JavaScript e Firebase, prefira executar com servidor local ou pelo GitHub Pages.
 
 ## Como publicar no GitHub Pages
 
@@ -45,9 +44,29 @@ O app usa caminhos relativos, então funciona tanto na raiz quanto dentro do sub
 
 ## Persistência
 
-Os dados ficam salvos no `localStorage` do navegador. O app também possui botões para exportar e importar um arquivo JSON com todo o estado.
+Por padrão, os dados ficam salvos no `localStorage` do navegador. O app também possui botões para exportar e importar um arquivo JSON com todo o estado.
 
 Importante: no GitHub Pages os dados continuam ficando no navegador de cada pessoa/dispositivo. Para levar os dados para outro navegador, use `Exportar JSON` e depois `Importar JSON`.
+
+## Sincronização com Firebase Firestore
+
+O Firebase Web App já está configurado em `src/firebase-config.js`. Para terminar a sincronização entre celular, tablet e computador:
+
+1. No Firebase Console, abra o projeto.
+2. Vá em `Firestore Database` > `Rules`.
+3. Publique regras baseadas no arquivo `firestore.rules.example`.
+4. Confirme que o `familyId` em `src/firebase-config.js` é o mesmo usado nas regras.
+5. Faça commit e push para o GitHub.
+
+O app salva tudo em um único documento:
+
+```text
+families/{familyId}/app/state
+```
+
+Quando o Firebase estiver configurado, o indicador no topo muda para `Sincronizado com Firebase`.
+
+Nota de segurança: a configuração Web do Firebase aparece no código do site. A proteção real fica nas regras do Firestore. As regras de exemplo são simples para uso familiar; para privacidade forte, configure Firebase Authentication e restrinja os e-mails autorizados.
 
 ## Lógica de cálculo
 

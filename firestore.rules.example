@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Troque familia-zanatta pelo mesmo familyId usado em src/firebase-config.js.
+    // Simples para uso familiar, mas qualquer pessoa com esse ID e a config do app
+    // poderia ler/escrever. Para privacidade forte, use Firebase Authentication.
+    match /families/familia-zanatta/app/state {
+      allow read, write: if true;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
