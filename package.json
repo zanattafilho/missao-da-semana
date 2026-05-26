@@ -1,0 +1,11 @@
+{
+  "name": "missao-da-semana",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aplicativo web simples para controle semanal de tarefas domesticas e ocorrencias familiares.",
+  "scripts": {
+    "check": "node --check src/app.js && node --check scripts/serve.js",
+    "start": "node scripts/serve.js",
+    "serve": "node scripts/serve.js"
+  }
+}

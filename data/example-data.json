@@ -1,0 +1,19 @@
+{
+  "observacao": "O aplicativo grava dados reais no localStorage do navegador. Este arquivo serve apenas como exemplo de exportacao/importacao.",
+  "participantes": ["Felipe", "Antonela", "Luiz", "Giovana"],
+  "tarefasIniciais": [
+    "Arrumar a cama",
+    "Levar pratos e copos para a pia",
+    "Guardar brinquedos",
+    "Limpar o que sujou",
+    "Organizar o quarto",
+    "Separar roupa suja",
+    "Cumprir combinados do dia"
+  ],
+  "regras": {
+    "valorSemanalPorFilho": 50,
+    "metaPercentual": 85,
+    "multaFilho": 1,
+    "creditoPorMultaDosPaisParaCadaFilho": 1
+  }
+}
