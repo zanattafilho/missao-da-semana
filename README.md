@@ -91,7 +91,7 @@ O valor final nunca fica abaixo de R$ 0,00.
 - Cards dos quatro participantes com foto, nome e saldo.
 - Cadastro ou troca de foto por participante.
 - Calendário semanal de segunda a domingo.
-- Marcação diária das tarefas como feita, não feita ou não se aplica.
+- Marcação diária das tarefas como feita, não feita ou não se aplica; tarefas novas começam como não se aplica.
 - Registro rápido de ocorrências negativas com confirmação.
 - Observação opcional por ocorrência.
 - Edição e exclusão manual de ocorrências.

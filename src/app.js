@@ -4,6 +4,7 @@ const STORAGE_KEY = "missao-da-semana:v1";
 const WEEKLY_BASE_VALUE = 50;
 const SUCCESS_TARGET = 85;
 const FIREBASE_SDK_VERSION = "12.7.0";
+const DEFAULT_TASK_STATUS = "na";
 
 const tasks = [
   "Arrumar a cama",
@@ -12,8 +13,11 @@ const tasks = [
   "Limpar o que sujou",
   "Organizar o quarto",
   "Separar roupa suja",
+  "Desmontar Lancheira",
   "Cumprir combinados do dia"
 ];
+
+const legacySeedTasks = tasks.filter((task) => task !== "Desmontar Lancheira");
 
 const participants = {
   felipe: {
@@ -86,7 +90,7 @@ function createEmptyWeek(weekStart) {
     childIds.forEach((childId) => {
       taskStatus[day.key][childId] = {};
       tasks.forEach((task) => {
-        taskStatus[day.key][childId][task] = "missed";
+        taskStatus[day.key][childId][task] = DEFAULT_TASK_STATUS;
       });
     });
   });
@@ -105,15 +109,6 @@ function createInitialState() {
   const currentWeek = createEmptyWeek(currentWeekStart);
   const previousWeek = createEmptyWeek(previousWeekStart);
 
-  getWeekDays(currentWeekStart).forEach((day, dayIndex) => {
-    childIds.forEach((childId) => {
-      tasks.forEach((task, taskIndex) => {
-        currentWeek.taskStatus[day.key][childId][task] =
-          (dayIndex + taskIndex + childId.length) % 7 === 0 ? "na" : "done";
-      });
-    });
-  });
-
   currentWeek.occurrences = [
     makeOccurrence("felipe", "child_bad_word", "Falou besteira na hora do videogame.", addHours(new Date(), -5)),
     makeOccurrence("luiz", "parent_bad_word", "Escapou um palavrão no trânsito.", addHours(new Date(), -2))
@@ -123,7 +118,7 @@ function createInitialState() {
     childIds.forEach((childId) => {
       tasks.forEach((task, taskIndex) => {
         previousWeek.taskStatus[day.key][childId][task] =
-          (dayIndex + taskIndex) % 10 === 0 ? "missed" : "done";
+          (dayIndex + taskIndex) % 10 === 0 ? "na" : "done";
       });
     });
   });
@@ -169,6 +164,7 @@ function normalizeState(savedState) {
   }
 
   Object.values(normalized.weeks).forEach((week) => ensureWeekShape(week));
+  migrateLegacySeededWeek(normalized);
   return normalized;
 }
 
@@ -181,10 +177,37 @@ function ensureWeekShape(week) {
     childIds.forEach((childId) => {
       week.taskStatus[day.key][childId] ||= {};
       tasks.forEach((task) => {
-        week.taskStatus[day.key][childId][task] ||= "missed";
+        week.taskStatus[day.key][childId][task] ||= DEFAULT_TASK_STATUS;
       });
     });
   });
+}
+
+function migrateLegacySeededWeek(normalizedState) {
+  const week = normalizedState.weeks[normalizedState.currentWeekStart];
+  if (!week || week.taskDefaultsMigrated) return;
+  if (!looksLikeLegacySeededWeek(week)) return;
+
+  getWeekDays(week.weekStart).forEach((day) => {
+    childIds.forEach((childId) => {
+      tasks.forEach((task) => {
+        week.taskStatus[day.key][childId][task] = DEFAULT_TASK_STATUS;
+      });
+    });
+  });
+  week.taskDefaultsMigrated = true;
+}
+
+function looksLikeLegacySeededWeek(week) {
+  return getWeekDays(week.weekStart).every((day, dayIndex) =>
+    childIds.every((childId) =>
+      legacySeedTasks.every((task, taskIndex) => {
+        const expectedStatus =
+          (dayIndex + taskIndex + childId.length) % 7 === 0 ? "na" : "done";
+        return week.taskStatus[day.key]?.[childId]?.[task] === expectedStatus;
+      })
+    )
+  );
 }
 
 function saveState() {
@@ -426,7 +449,7 @@ function getCalculations(week) {
 
   childIds.forEach((childId) => {
     const allStatuses = getWeekDays(week.weekStart).flatMap((day) =>
-      tasks.map((task) => week.taskStatus[day.key]?.[childId]?.[task] || "missed")
+      tasks.map((task) => week.taskStatus[day.key]?.[childId]?.[task] || DEFAULT_TASK_STATUS)
     );
     const validStatuses = allStatuses.filter((status) => status !== "na");
     const doneCount = validStatuses.filter((status) => status === "done").length;
@@ -759,7 +782,7 @@ function renderChildDay(childId, day, week) {
     <div class="child-day">
       <h3>${participant.name}</h3>
       ${tasks.map((task) => {
-        const status = week.taskStatus[day.key]?.[childId]?.[task] || "missed";
+        const status = week.taskStatus[day.key]?.[childId]?.[task] || DEFAULT_TASK_STATUS;
         return `
           <label class="task-row ${status}">
             <span>${task}</span>
