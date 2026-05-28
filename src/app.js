@@ -5,6 +5,9 @@ const WEEKLY_BASE_VALUE = 50;
 const SUCCESS_TARGET = 85;
 const FIREBASE_SDK_VERSION = "12.7.0";
 const DEFAULT_TASK_STATUS = "na";
+const DEFAULT_SETTINGS = {
+  audioEnabled: true
+};
 
 const tasks = [
   "Arrumar a cama",
@@ -14,10 +17,13 @@ const tasks = [
   "Organizar o quarto",
   "Separar roupa suja",
   "Desmontar Lancheira",
+  "Dar ração para a Cacau",
   "Cumprir combinados do dia"
 ];
 
-const legacySeedTasks = tasks.filter((task) => task !== "Desmontar Lancheira");
+const legacySeedTasks = tasks.filter(
+  (task) => !["Desmontar Lancheira", "Dar ração para a Cacau"].includes(task)
+);
 
 const participants = {
   felipe: {
@@ -63,15 +69,48 @@ const parentIds = Object.values(participants)
   .map((participant) => participant.id);
 
 const statusOptions = {
-  done: { label: "Feita", short: "Feita", icon: "✓" },
-  missed: { label: "Não feita", short: "Falhou", icon: "×" },
-  na: { label: "Não se aplica", short: "N/A", icon: "-" }
+  done: { label: "Feita", short: "Feita", icon: "✅" },
+  missed: { label: "Não feita", short: "Não feita", icon: "❌" },
+  na: { label: "Não se aplica", short: "N/A", icon: "➖" }
+};
+
+const feedbackMessages = {
+  taskDone: [
+    "Muito bem! Você cumpriu sua missão!",
+    "Parabéns! Você está ajudando muito em casa!",
+    "Boa! Continue assim, campeão!",
+    "Excelente! Cada tarefa feita deixa a casa mais organizada!",
+    "Mandou bem! Você está ficando cada vez mais responsável!"
+  ],
+  taskMissed: [
+    "Que pena! Essa missão ficou para trás. Na próxima, tente cumprir o combinado.",
+    "Ops! Essa tarefa não foi feita. Responsabilidade também é treino.",
+    "Não foi legal deixar essa tarefa sem fazer. Amanhã dá para melhorar!",
+    "Essa missão não foi cumprida. Vamos caprichar na próxima?",
+    "Todo mundo erra, mas o importante é aprender e fazer melhor depois."
+  ],
+  childOccurrence: [
+    "Opa! Falar besteira não combina com respeito.",
+    "Palavrão não é bonito. Vamos escolher palavras melhores?",
+    "Isso não foi legal. Falar com respeito é muito mais bonito.",
+    "Atenção! Palavras feias machucam e não ajudam.",
+    "Que pena! Vamos tentar falar de um jeito mais educado da próxima vez?"
+  ],
+  parentOccurrence: [
+    "O adulto também errou! Todo mundo precisa falar com respeito.",
+    "Ops! Papai e mamãe também precisam dar bom exemplo.",
+    "Palavrão de adulto também não vale. Respeito é para todos.",
+    "Atenção! Os adultos também estão na missão das boas palavras.",
+    "Errar acontece, mas dar exemplo é importante."
+  ]
 };
 
 const app = document.querySelector("#app");
 let state = loadState();
 let selectedWeekStart = state.currentWeekStart;
 let editingOccurrenceId = null;
+let feedback = null;
+let feedbackTimer = null;
 let cloud = {
   status: "local",
   message: "Salvando neste navegador",
@@ -130,6 +169,7 @@ function createInitialState() {
   return {
     currentWeekStart,
     participants: clone(participants),
+    settings: clone(DEFAULT_SETTINGS),
     weeks: {
       [currentWeekStart]: currentWeek,
       [previousWeekStart]: previousWeek
@@ -155,6 +195,7 @@ function normalizeState(savedState) {
   const normalized = {
     currentWeekStart,
     participants: { ...clone(participants), ...(savedState.participants || {}) },
+    settings: { ...clone(DEFAULT_SETTINGS), ...(savedState.settings || {}) },
     weeks: savedState.weeks || {},
     history: savedState.history || []
   };
@@ -285,7 +326,7 @@ async function initCloudSync() {
           status: "online",
           message: "Sincronizado com Firebase"
         };
-        render();
+        render({ preserveCalendarScroll: true });
       },
       (error) => {
         cloud = {
@@ -293,7 +334,7 @@ async function initCloudSync() {
           status: "error",
           message: `Firebase: ${error.message}`
         };
-        render();
+        render({ preserveCalendarScroll: true });
       }
     );
   } catch (error) {
@@ -318,7 +359,7 @@ function queueCloudSave(immediate = false) {
         status: "saving",
         message: "Salvando na nuvem..."
       };
-      render();
+      render({ preserveCalendarScroll: true });
 
       await cloud.setDoc(
         cloud.ref,
@@ -335,14 +376,14 @@ function queueCloudSave(immediate = false) {
         status: "online",
         message: "Sincronizado com Firebase"
       };
-      render();
+      render({ preserveCalendarScroll: true });
     } catch (error) {
       cloud = {
         ...cloud,
         status: "error",
         message: `Firebase: ${error.message}`
       };
-      render();
+      render({ preserveCalendarScroll: true });
     }
   }, delay);
 }
@@ -443,6 +484,22 @@ function getCurrentWeek() {
   return state.weeks[selectedWeekStart];
 }
 
+function getCalendarScrollState() {
+  const calendar = document.querySelector(".calendar");
+  return calendar ? { left: calendar.scrollLeft, top: calendar.scrollTop } : null;
+}
+
+function restoreCalendarScroll(scrollState) {
+  if (!scrollState) return;
+
+  requestAnimationFrame(() => {
+    const calendar = document.querySelector(".calendar");
+    if (!calendar) return;
+    calendar.scrollLeft = scrollState.left;
+    calendar.scrollTop = scrollState.top;
+  });
+}
+
 function getCalculations(week) {
   const calculations = {};
   const parentFines = week.occurrences.filter((occurrence) => parentIds.includes(occurrence.participantId)).length;
@@ -495,9 +552,20 @@ function getMedals({ percentage, childFines, week, childId }) {
 
 function setTaskStatus(dayKey, childId, task, status) {
   const week = getCurrentWeek();
+  const previousStatus = week.taskStatus[dayKey][childId][task];
+  if (previousStatus === status) return;
+
   week.taskStatus[dayKey][childId][task] = status;
   saveState();
-  render();
+
+  if (status === "done") {
+    showFeedback("taskDone", { renderNow: false, preserveCalendarScroll: true });
+  }
+  if (status === "missed") {
+    showFeedback("taskMissed", { renderNow: false, preserveCalendarScroll: true });
+  }
+
+  render({ preserveCalendarScroll: true });
 }
 
 function updateParticipantPhoto(participantId, file) {
@@ -520,6 +588,9 @@ function addOccurrence(participantId, type, note = "") {
   const week = getCurrentWeek();
   week.occurrences.unshift(makeOccurrence(participantId, type, note.trim()));
   saveState();
+  showFeedback(parentIds.includes(participantId) ? "parentOccurrence" : "childOccurrence", {
+    renderNow: false
+  });
   render();
 }
 
@@ -619,7 +690,87 @@ function occurrenceLabel(occurrence) {
   return `${participant.name} ${text}`;
 }
 
-function render() {
+function pickMessage(category) {
+  const messages = feedbackMessages[category] || [];
+  return messages[Math.floor(Math.random() * messages.length)] || "";
+}
+
+function showFeedback(category, options = {}) {
+  const { renderNow = true, preserveCalendarScroll = false } = options;
+  const message = pickMessage(category);
+  if (!message) return;
+
+  feedback = {
+    category,
+    message,
+    icon: getFeedbackIcon(category)
+  };
+  speakMessage(message);
+
+  clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(() => {
+    feedback = null;
+    render({ preserveCalendarScroll });
+  }, 6500);
+
+  if (renderNow) render({ preserveCalendarScroll });
+}
+
+function closeFeedback() {
+  feedback = null;
+  clearTimeout(feedbackTimer);
+  render();
+}
+
+function getFeedbackIcon(category) {
+  if (category === "taskDone") return "⭐";
+  if (category === "taskMissed") return "💡";
+  if (category === "childOccurrence") return "🗣️";
+  return "🌈";
+}
+
+function speakMessage(text) {
+  if (
+    !state.settings?.audioEnabled ||
+    !("speechSynthesis" in window) ||
+    !("SpeechSynthesisUtterance" in window)
+  ) {
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new window.SpeechSynthesisUtterance(text);
+  utterance.lang = "pt-BR";
+  utterance.rate = 0.92;
+  utterance.pitch = 1.08;
+  const voices = window.speechSynthesis.getVoices();
+  utterance.voice = findPreferredVoice(voices);
+  window.speechSynthesis.speak(utterance);
+}
+
+function findPreferredVoice(voices) {
+  const ptBrVoices = voices.filter((voice) => voice.lang?.toLowerCase().startsWith("pt-br"));
+  const ptVoices = voices.filter((voice) => voice.lang?.toLowerCase().startsWith("pt"));
+  const candidates = ptBrVoices.length ? ptBrVoices : ptVoices;
+  const feminineHints = ["female", "feminina", "maria", "helena", "luciana", "francisca", "google"];
+  return (
+    candidates.find((voice) =>
+      feminineHints.some((hint) => voice.name.toLowerCase().includes(hint))
+    ) ||
+    candidates[0] ||
+    null
+  );
+}
+
+function toggleAudio(enabled) {
+  state.settings.audioEnabled = enabled;
+  if (!enabled && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  saveState();
+  render();
+}
+
+function render(options = {}) {
+  const calendarScroll = options.preserveCalendarScroll ? getCalendarScrollState() : null;
   const week = getCurrentWeek();
   const calculations = getCalculations(week);
   const weekDays = getWeekDays(week.weekStart);
@@ -637,6 +788,10 @@ function render() {
             <span></span>
             ${escapeHtml(cloud.message)}
           </div>
+          <label class="audio-toggle">
+            <input type="checkbox" data-action="toggle-audio" ${state.settings.audioEnabled ? "checked" : ""} />
+            <span>🔊 Voz</span>
+          </label>
           <div class="week-switcher" aria-label="Selecionar semana">
             <label for="weekSelect">Semana</label>
             <select id="weekSelect">
@@ -730,10 +885,12 @@ function render() {
           ${getAllWeekStarts().map((weekStart) => renderHistoryItem(weekStart)).join("")}
         </div>
       </section>
+      ${renderFeedback()}
     </main>
   `;
 
   bindEvents();
+  restoreCalendarScroll(calendarScroll);
 }
 
 function renderParticipantCard(participant, calculations) {
@@ -763,6 +920,20 @@ function renderParticipantCard(participant, calculations) {
   `;
 }
 
+function renderFeedback() {
+  if (!feedback) return "";
+
+  return `
+    <div class="feedback-backdrop" role="dialog" aria-live="polite" aria-label="Mensagem educativa">
+      <article class="feedback-card ${feedback.category}">
+        <div class="feedback-icon" aria-hidden="true">${feedback.icon}</div>
+        <p>${escapeHtml(feedback.message)}</p>
+        <button class="primary-button" type="button" data-action="close-feedback">Entendi</button>
+      </article>
+    </div>
+  `;
+}
+
 function renderDayColumn(day, week) {
   return `
     <article class="day-column">
@@ -784,14 +955,28 @@ function renderChildDay(childId, day, week) {
       ${tasks.map((task) => {
         const status = week.taskStatus[day.key]?.[childId]?.[task] || DEFAULT_TASK_STATUS;
         return `
-          <label class="task-row ${status}">
-            <span>${task}</span>
-            <select data-day="${day.key}" data-child="${childId}" data-task="${task}">
+          <article class="task-row ${status}">
+            <span class="task-name">${task}</span>
+            <div class="task-actions" role="radiogroup" aria-label="${participant.name}: ${task}">
               ${Object.entries(statusOptions)
-                .map(([key, option]) => `<option value="${key}" ${key === status ? "selected" : ""}>${option.short}</option>`)
+                .map(([key, option]) => `
+                  <button
+                    type="button"
+                    class="task-status-button ${key === status ? "selected" : ""}"
+                    role="radio"
+                    aria-checked="${key === status}"
+                    data-task-status="${key}"
+                    data-day="${day.key}"
+                    data-child="${childId}"
+                    data-task="${escapeHtml(task)}"
+                  >
+                    <span aria-hidden="true">${option.icon}</span>
+                    <strong>${option.short}</strong>
+                  </button>
+                `)
                 .join("")}
-            </select>
-          </label>
+            </div>
+          </article>
         `;
       }).join("")}
     </div>
@@ -888,9 +1073,10 @@ function bindEvents() {
     input.addEventListener("change", (event) => updateParticipantPhoto(event.target.dataset.photo, event.target.files[0]));
   });
 
-  document.querySelectorAll("[data-day][data-child][data-task]").forEach((select) => {
-    select.addEventListener("change", (event) => {
-      setTaskStatus(event.target.dataset.day, event.target.dataset.child, event.target.dataset.task, event.target.value);
+  document.querySelectorAll("[data-task-status]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const target = event.currentTarget;
+      setTaskStatus(target.dataset.day, target.dataset.child, target.dataset.task, target.dataset.taskStatus);
     });
   });
 
@@ -930,6 +1116,10 @@ function bindEvents() {
   document.querySelector("[data-action='export']")?.addEventListener("click", exportData);
   document.querySelector("[data-action='reset']")?.addEventListener("click", resetExampleData);
   document.querySelector("[data-action='import']")?.addEventListener("change", (event) => importData(event.target.files[0]));
+  document.querySelector("[data-action='toggle-audio']")?.addEventListener("change", (event) => {
+    toggleAudio(event.target.checked);
+  });
+  document.querySelector("[data-action='close-feedback']")?.addEventListener("click", closeFeedback);
   document.querySelector("[data-edit-form]")?.addEventListener("submit", updateOccurrence);
   document.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
     editingOccurrenceId = null;

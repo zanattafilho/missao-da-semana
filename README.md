@@ -91,7 +91,10 @@ O valor final nunca fica abaixo de R$ 0,00.
 - Cards dos quatro participantes com foto, nome e saldo.
 - Cadastro ou troca de foto por participante.
 - Calendário semanal de segunda a domingo.
-- Marcação diária das tarefas como feita, não feita ou não se aplica; tarefas novas começam como não se aplica.
+- Marcação diária das tarefas com botões grandes: feita, não feita ou não se aplica.
+- Tarefas novas começam como não se aplica.
+- Mensagens educativas aleatórias após tarefas feitas, tarefas não feitas e ocorrências.
+- Leitura opcional das mensagens em voz pelo navegador, com botão para ligar/desligar.
 - Registro rápido de ocorrências negativas com confirmação.
 - Observação opcional por ocorrência.
 - Edição e exclusão manual de ocorrências.
